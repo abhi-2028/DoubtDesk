@@ -33,12 +33,13 @@ export async function GET(request: Request) {
       db
         .select({
           userEmail: aiUsageTable.userEmail,
+          anonymousId: aiUsageTable.anonymousId,
           calls: count(),
           tokens: sql<number>`coalesce(sum(${aiUsageTable.tokensUsed}), 0)`,
         })
         .from(aiUsageTable)
         .where(gte(aiUsageTable.timestamp, since))
-        .groupBy(aiUsageTable.userEmail)
+        .groupBy(aiUsageTable.userEmail, aiUsageTable.anonymousId)
         .orderBy(desc(sql`sum(${aiUsageTable.tokensUsed})`)),
       db
         .select({
