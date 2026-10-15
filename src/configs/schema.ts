@@ -603,3 +603,22 @@ export const discussionThreadsTable = pgTable("discussion_threads", {
     }).onDelete("cascade"),
     createdAtIndex: index("discussion_threads_created_at_idx").on(table.createdAt),
 }));
+
+export const aiUsageTable = pgTable(
+    "ai_usage",
+    {
+        id: integer().primaryKey().generatedAlwaysAsIdentity(),
+        userEmail: varchar({ length: 255 }).notNull(),
+        route: varchar({ length: 255 }).notNull(),
+        model: varchar({ length: 255 }).notNull(),
+        tokensUsed: integer().notNull(),
+        timestamp: timestamp().defaultNow().notNull(),
+    },
+    (table) => ({
+        userTimestampIndex: index("ai_usage_user_timestamp_idx").on(
+            table.userEmail,
+            table.timestamp,
+        ),
+        timestampIndex: index("ai_usage_timestamp_idx").on(table.timestamp),
+    }),
+);

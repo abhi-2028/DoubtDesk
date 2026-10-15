@@ -1,3 +1,4 @@
+import { checkAiUsageQuota, logAiUsage, } from "@/lib/ai/usage-tracker";
 import { NextResponse } from "next/server";
 import { groq } from "@/lib/ai/groq-client";
 import { and, eq } from "drizzle-orm";
@@ -11,32 +12,56 @@ import { buildErrorResponse } from "@/lib/errors/error-handler";
 import { limitRequestBodySize } from "@/lib/validations/validate";
 import type { AIMode } from "@/types/ai-chat";
 
-const MODEL = "llama-3.3-70b-versatile";
+const MODEL = "openai/gpt-oss-120b";
 
 type ChatMsg = { role: "user" | "assistant"; content: string };
 
 function sanitizeHistory(raw: unknown): ChatMsg[] {
   if (!Array.isArray(raw)) return [];
-return raw
-  .slice(-20)
-  .filter(
-    (m): m is ChatMsg =>
-      !!m &&
-      typeof m === "object" &&
-      (m.role === "user" || m.role === "assistant") &&
-      typeof m.content === "string" &&
-      m.content.length <= 4000
-  );
+  return raw
+    .slice(-20)
+    .filter(
+      (m): m is ChatMsg =>
+        !!m &&
+        typeof m === "object" &&
+        (m.role === "user" || m.role === "assistant") &&
+        typeof m.content === "string" &&
+        m.content.length <= 4000,
+    )
+    .map(({ role, content }) => ({ role, content }));
 }
 
 export async function POST(req: Request): Promise<NextResponse> {
-  const { userId } = await auth();
+  const { userId, sessionClaims } = await auth();
   if (!userId) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
-  const user = await currentUser();
-  const email = user?.primaryEmailAddress?.emailAddress;
+  let email =
+    typeof sessionClaims?.email === "string"
+      ? sessionClaims.email
+      : undefined;
+  let userName =
+    typeof sessionClaims?.name === "string"
+      ? sessionClaims.name
+      : undefined;
+
+  if (!email || !userName) {
+    try {
+      const user = await currentUser();
+      email ??= user?.primaryEmailAddress?.emailAddress;
+      userName ??= user?.fullName ?? undefined;
+    } catch (error) {
+      console.error("[ask-ai] Clerk profile lookup failed:", error);
+      if (!email) {
+        return NextResponse.json(
+          { error: "Authentication service is temporarily unavailable." },
+          { status: 503 },
+        );
+      }
+    }
+  }
+
   if (!email) {
     return NextResponse.json({ error: "Email required" }, { status: 400 });
   }
@@ -62,19 +87,10 @@ export async function POST(req: Request): Promise<NextResponse> {
         ? body.message
         : "";
 
-  // Reject empty or whitespace-only prompts before they ever reach the Groq
-  // API. Without this, an empty user message causes Groq to throw, which
-  // was being caught and surfaced as a 502/500 instead of a proper 400.
-  if (!prompt.trim()) {
-    return NextResponse.json(
-      { error: "Prompt cannot be empty" },
-      { status: 400 }
-    );
-  }
-
-  if (body.imageBase64 !== undefined) {
-    const img = body.imageBase64 as string;
-    const validMime = /^data:image\/(png|jpe?g|webp);base64,/.test(img);
+  if (body.imageBase64 !== undefined && body.imageBase64 !== null) {
+    const validMime =
+      typeof body.imageBase64 === "string" &&
+      /^data:image\/(png|jpe?g|webp);base64,/.test(body.imageBase64);
     if (!validMime) {
       return NextResponse.json(
         {
@@ -84,6 +100,16 @@ export async function POST(req: Request): Promise<NextResponse> {
         { status: 422 }
       );
     }
+  }
+
+  // Reject empty or whitespace-only prompts before they ever reach the Groq
+  // API. Without this, an empty user message causes Groq to throw, which
+  // was being caught and surfaced as a 502/500 instead of a proper 400.
+  if (!prompt.trim()) {
+    return NextResponse.json(
+      { error: "Prompt cannot be empty" },
+      { status: 400 }
+    );
   }
 
   let classroomId: number | undefined;
@@ -159,6 +185,21 @@ export async function POST(req: Request): Promise<NextResponse> {
     }
   }
 
+  const quota = await checkAiUsageQuota(email);
+
+  if (!quota.allowed) {
+    return NextResponse.json(
+      {
+        error: "AI usage quota exceeded",
+        code: "AI_QUOTA_EXCEEDED",
+        period: quota.period,
+        used: quota.used,
+        limit: quota.limit,
+      },
+      { status: 429 },
+    );
+  }
+
   const startMs = Date.now();
   let completion: Awaited<ReturnType<typeof groq.chat.completions.create>>;
   try {
@@ -178,6 +219,17 @@ export async function POST(req: Request): Promise<NextResponse> {
   const rawReply: string = completion.choices[0]?.message?.content ?? "";
   const usage = completion.usage;
 
+  try {
+    await logAiUsage({
+      userEmail: email,
+      route: "/api/ask-ai",
+      model: MODEL,
+      tokensUsed: usage?.total_tokens ?? 0,
+    });
+  } catch (error) {
+    console.error("[ask-ai] Failed to log AI usage:", error);
+  }
+
   const subjectMatch = rawReply.match(/^SUBJECT:\s*(.+)$/m);
   const subject = subjectMatch?.[1]?.trim() ?? null;
   const reply = rawReply.replace(/^SUBJECT:.*$/m, "").trim();
@@ -185,7 +237,7 @@ export async function POST(req: Request): Promise<NextResponse> {
   const [inserted] = await db
     .insert(aiSessionsTable)
     .values({
-      userName: user.fullName ?? "Unknown",
+      userName: userName ?? "Unknown",
       subject: subject ?? (typeof body.type === "string" ? body.type : "General"),
       content: prompt.slice(0, 80),
     })
