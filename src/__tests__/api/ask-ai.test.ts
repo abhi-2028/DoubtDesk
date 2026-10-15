@@ -11,6 +11,15 @@ jest.mock('@/lib/validations/validate', () => {
     };
 });
 
+jest.mock("@/lib/ai/usage-tracker", () => ({
+    reserveAiUsage: jest.fn().mockResolvedValue({
+        allowed: true,
+        reservation: { id: 1, identity: { userEmail: "student@example.com" } },
+    }),
+    recordAiUsage: jest.fn().mockResolvedValue(undefined),
+    releaseAiUsageReservation: jest.fn().mockResolvedValue(undefined),
+}));
+
 jest.mock('@/lib/ratelimit/ratelimit', () => ({
     aiLimiter: {
         limit: jest.fn().mockResolvedValue({

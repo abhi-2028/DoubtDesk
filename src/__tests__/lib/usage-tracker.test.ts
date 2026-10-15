@@ -50,6 +50,28 @@ describe("AI usage tracker", () => {
       used: 50_000,
       limit: 50_000,
     });
+
+  });
+
+  it("falls back to the default when a quota limit is not numeric", async () => {
+    const previousLimit = process.env.AI_DAILY_TOKEN_LIMIT;
+    process.env.AI_DAILY_TOKEN_LIMIT = "not-a-number";
+    selectResults.push({ total: 50_000 });
+
+    await expect(
+      checkAiUsageQuota({ userEmail: "student@example.com" }),
+    ).resolves.toEqual({
+      allowed: false,
+      period: "daily",
+      used: 50_000,
+      limit: 50_000,
+    });
+
+    if (previousLimit === undefined) {
+      delete process.env.AI_DAILY_TOKEN_LIMIT;
+    } else {
+      process.env.AI_DAILY_TOKEN_LIMIT = previousLimit;
+    }
   });
 
   it("blocks an identity that has exhausted its monthly quota", async () => {

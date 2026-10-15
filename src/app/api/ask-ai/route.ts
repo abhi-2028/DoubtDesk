@@ -1,4 +1,8 @@
-import { checkAiUsageQuota, logAiUsage, } from "@/lib/ai/usage-tracker";
+import {
+  recordAiUsage,
+  releaseAiUsageReservation,
+  reserveAiUsage,
+} from "@/lib/ai/usage-tracker";
 import { NextResponse } from "next/server";
 import { groq } from "@/lib/ai/groq-client";
 import { and, eq } from "drizzle-orm";
@@ -185,9 +189,9 @@ export async function POST(req: Request): Promise<NextResponse> {
     }
   }
 
-  const quota = await checkAiUsageQuota({userEmail: email});
+  const quota = await reserveAiUsage({ userEmail: email });
 
-  if (!quota.allowed) {
+  if (quota.allowed === false) {
     return NextResponse.json(
       {
         error: "AI usage quota exceeded",
@@ -210,6 +214,7 @@ export async function POST(req: Request): Promise<NextResponse> {
       max_tokens: 700,
     });
   } catch (err) {
+    await releaseAiUsageReservation(quota.reservation);
     console.error("[ask-ai] Groq error:", err);
     const { status, body } = buildErrorResponse(err);
     return NextResponse.json(body, { status: status === 500 ? 502 : status });
@@ -220,14 +225,17 @@ export async function POST(req: Request): Promise<NextResponse> {
   const usage = completion.usage;
 
   try {
-    await logAiUsage({
-      identity: { userEmail: email },
+    await recordAiUsage(quota.reservation, {
       route: "/api/ask-ai",
       model: MODEL,
       tokensUsed: usage?.total_tokens ?? 0,
     });
   } catch (error) {
-    console.error("[ask-ai] Failed to log AI usage:", error);
+    console.error("[ask-ai] Failed to persist AI usage; withholding answer:", error);
+    return NextResponse.json(
+      { error: "The AI response could not be accounted for safely.", code: "AI_USAGE_UNAVAILABLE" },
+      { status: 502 },
+    );
   }
 
   const subjectMatch = rawReply.match(/^SUBJECT:\s*(.+)$/m);

@@ -13,7 +13,12 @@ import {
 import { aiLimiter } from "@/lib/ratelimit/ratelimit";
 import { getAnonymousQuotaIdentifier } from "@/lib/auth/request-identity";
 import { getSafeErrorDetails } from "@/lib/errors/safe-error-details";
-import { checkAiUsageQuota, logAiUsage, type AiUsageIdentity } from "@/lib/ai/usage-tracker";
+import {
+  recordAiUsage,
+  releaseAiUsageReservation,
+  reserveAiUsage,
+  type AiUsageIdentity,
+} from "@/lib/ai/usage-tracker";
 import {
   requireAuth,
   requireMembership,
@@ -123,8 +128,8 @@ export async function POST(req: Request) {
     );
     if (availabilityResponse) return availabilityResponse;
 
-    const usageQuota = await checkAiUsageQuota(aiUsageIdentity);
-    if (!usageQuota.allowed) {
+    const usageQuota = await reserveAiUsage(aiUsageIdentity);
+    if (usageQuota.allowed === false) {
       return NextResponse.json(
         {
           error: "AI usage quota exceeded",
@@ -166,6 +171,7 @@ Do not include any explanation or markdown.`;
         max_tokens: 300,
       });
     } catch (err) {
+      await releaseAiUsageReservation(usageQuota.reservation);
       console.error("Groq API failed:", getSafeErrorDetails(err));
       return buildAiProviderErrorResponse(err);
     }
@@ -173,14 +179,17 @@ Do not include any explanation or markdown.`;
     const raw = completion.choices[0]?.message?.content?.trim() || "[]";
 
     try {
-      await logAiUsage({
-        identity: aiUsageIdentity,
+      await recordAiUsage(usageQuota.reservation, {
         route: "/api/doubts/check-similarity",
         model: "openai/gpt-oss-120b",
         tokensUsed: completion.usage?.total_tokens ?? 0,
       });
     } catch (error) {
-      console.error("Failed to log similarity AI usage:", error);
+      console.error("Failed to persist similarity AI usage; withholding result:", error);
+      return NextResponse.json(
+        { error: "The AI response could not be accounted for safely.", code: "AI_USAGE_UNAVAILABLE" },
+        { status: 502 },
+      );
     }
 
     let matches: { index: number; similarity: number }[] = [];

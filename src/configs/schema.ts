@@ -1,4 +1,5 @@
-import { integer, pgTable, varchar, text, timestamp, boolean, index, uniqueIndex, foreignKey, unique, vector, pgEnum } from "drizzle-orm/pg-core";
+import { integer, pgTable, varchar, text, timestamp, boolean, index, uniqueIndex, foreignKey, unique, vector, pgEnum, check } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
 export const userRoleEnum = pgEnum("user_role", ["student", "teacher", "admin"]);
 
@@ -625,5 +626,28 @@ export const aiUsageTable = pgTable(
             table.timestamp,
         ),
         timestampIndex: index("ai_usage_timestamp_idx").on(table.timestamp),
+    }),
+);
+
+export const aiUsageReservationsTable = pgTable(
+    "ai_usage_reservations",
+    {
+        id: integer().primaryKey().generatedAlwaysAsIdentity(),
+        userEmail: varchar({ length: 255 }),
+        anonymousId: varchar({ length: 255 }),
+        reservedTokens: integer().notNull(),
+        expiresAt: timestamp({ withTimezone: true }).notNull(),
+        createdAt: timestamp({ withTimezone: true }).defaultNow().notNull(),
+    },
+    (table) => ({
+        identityIndex: index("ai_usage_reservations_identity_idx").on(
+            table.userEmail,
+            table.anonymousId,
+        ),
+        expiresAtIndex: index("ai_usage_reservations_expires_at_idx").on(table.expiresAt),
+        identityCheck: check(
+            "ai_usage_reservations_identity_check",
+            sql`((${table.userEmail} IS NOT NULL)::int + (${table.anonymousId} IS NOT NULL)::int) = 1`,
+        ),
     }),
 );

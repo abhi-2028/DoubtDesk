@@ -26,7 +26,7 @@ export async function GET(request: Request) {
       db
         .select({
           calls: count(),
-          tokens: sql<number>`coalesce(sum(${aiUsageTable.tokensUsed}), 0)`,
+          tokens: sql<string>`coalesce(sum(${aiUsageTable.tokensUsed}), 0)`,
         })
         .from(aiUsageTable)
         .where(gte(aiUsageTable.timestamp, since)),
@@ -35,7 +35,7 @@ export async function GET(request: Request) {
           userEmail: aiUsageTable.userEmail,
           anonymousId: aiUsageTable.anonymousId,
           calls: count(),
-          tokens: sql<number>`coalesce(sum(${aiUsageTable.tokensUsed}), 0)`,
+          tokens: sql<string>`coalesce(sum(${aiUsageTable.tokensUsed}), 0)`,
         })
         .from(aiUsageTable)
         .where(gte(aiUsageTable.timestamp, since))
@@ -45,7 +45,7 @@ export async function GET(request: Request) {
         .select({
           route: aiUsageTable.route,
           calls: count(),
-          tokens: sql<number>`coalesce(sum(${aiUsageTable.tokensUsed}), 0)`,
+          tokens: sql<string>`coalesce(sum(${aiUsageTable.tokensUsed}), 0)`,
         })
         .from(aiUsageTable)
         .where(gte(aiUsageTable.timestamp, since))
@@ -55,7 +55,7 @@ export async function GET(request: Request) {
         .select({
           model: aiUsageTable.model,
           calls: count(),
-          tokens: sql<number>`coalesce(sum(${aiUsageTable.tokensUsed}), 0)`,
+          tokens: sql<string>`coalesce(sum(${aiUsageTable.tokensUsed}), 0)`,
         })
         .from(aiUsageTable)
         .where(gte(aiUsageTable.timestamp, since))
@@ -69,9 +69,9 @@ export async function GET(request: Request) {
         calls: summary[0]?.calls ?? 0,
         tokens: Number(summary[0]?.tokens ?? 0),
       },
-      byUser,
-      byRoute,
-      byModel,
+      byUser: byUser.map((row) => ({ ...row, tokens: Number(row.tokens) })),
+      byRoute: byRoute.map((row) => ({ ...row, tokens: Number(row.tokens) })),
+      byModel: byModel.map((row) => ({ ...row, tokens: Number(row.tokens) })),
     });
   } catch (error) {
     console.error("Error generating AI usage metrics:", error);

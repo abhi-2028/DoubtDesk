@@ -40,6 +40,15 @@ jest.mock("@/lib/ai/kill-switch", () => ({
   enforceAiAvailability: jest.fn().mockResolvedValue(null),
 }));
 
+jest.mock("@/lib/ai/usage-tracker", () => ({
+  reserveAiUsage: jest.fn().mockResolvedValue({
+    allowed: true,
+    reservation: { id: 1, identity: { anonymousId: "anonymous" } },
+  }),
+  recordAiUsage: jest.fn().mockResolvedValue(undefined),
+  releaseAiUsageReservation: jest.fn().mockResolvedValue(undefined),
+}));
+
 const createQueryMock = () => {
   const query: any = {
     from: () => query,
