@@ -25,6 +25,7 @@
     { "idx": 20, "version": "7", "when": 1783400000000, "tag": "0020_discussion_threads", "breakpoints": true },
     { "idx": 21, "version": "7", "when": 1783500000000, "tag": "0021_organization_memberships_indexes", "breakpoints": true },
     { "idx": 22, "version": "7", "when": 1783500000001, "tag": "0022_add_ai_sessions", "breakpoints": true },
-    { "idx": 23, "version": "7", "when": 1783500000004, "tag": "0023_ai_usage", "breakpoints": true }
+    { "idx": 23, "version": "7", "when": 1783500000004, "tag": "0023_ai_usage", "breakpoints": true },
+    { "idx": 24, "version": "7", "when": 1783500000005, "tag": "0024_ai_usage_anonymous_id", "breakpoints": true }
   ]
 }
