@@ -185,7 +185,7 @@ export async function POST(req: Request): Promise<NextResponse> {
     }
   }
 
-  const quota = await checkAiUsageQuota(email);
+  const quota = await checkAiUsageQuota({userEmail: email});
 
   if (!quota.allowed) {
     return NextResponse.json(
@@ -221,7 +221,7 @@ export async function POST(req: Request): Promise<NextResponse> {
 
   try {
     await logAiUsage({
-      userEmail: email,
+      identity: { userEmail: email },
       route: "/api/ask-ai",
       model: MODEL,
       tokensUsed: usage?.total_tokens ?? 0,

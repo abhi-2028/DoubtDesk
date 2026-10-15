@@ -1,4 +1,3 @@
-// One limitation to address later: this first version checks existing usage before a request, so concurrent requests can race, and a single request can push usage beyond the limit. Strict quota enforcement requires reserving usage atomically before calling Groq.
 import { and, eq, gte, lt, sql } from "drizzle-orm";
 import { db } from "@/configs/db";
 import { aiUsageTable } from "@/configs/schema";
@@ -12,6 +11,10 @@ const MONTHLY_TOKEN_LIMIT = Number(
 );
 
 type UsagePeriod = "daily" | "monthly";
+
+export type AiUsageIdentity =
+  | { userEmail: string }
+  | { anonymousId: string };
 
 function getPeriodStart(period: UsagePeriod): Date {
   const now = new Date();
@@ -27,8 +30,16 @@ function getPeriodStart(period: UsagePeriod): Date {
   return start;
 }
 
+function getIdentityCondition(identity: AiUsageIdentity) {
+  if ("userEmail" in identity) {
+    return eq(aiUsageTable.userEmail, identity.userEmail);
+  }
+
+  return eq(aiUsageTable.anonymousId, identity.anonymousId);
+}
+
 async function getTokensUsed(
-  userEmail: string,
+  identity: AiUsageIdentity,
   period: UsagePeriod,
 ): Promise<number> {
   const start = getPeriodStart(period);
@@ -40,7 +51,7 @@ async function getTokensUsed(
     .from(aiUsageTable)
     .where(
       and(
-        eq(aiUsageTable.userEmail, userEmail),
+        getIdentityCondition(identity),
         gte(aiUsageTable.timestamp, start),
         lt(aiUsageTable.timestamp, new Date()),
       ),
@@ -49,15 +60,15 @@ async function getTokensUsed(
   return Number(result?.total ?? 0);
 }
 
-export async function checkAiUsageQuota(userEmail: string) {
+export async function checkAiUsageQuota(identity: AiUsageIdentity) {
   const [dailyUsed, monthlyUsed] = await Promise.all([
-    getTokensUsed(userEmail, "daily"),
-    getTokensUsed(userEmail, "monthly"),
+    getTokensUsed(identity, "daily"),
+    getTokensUsed(identity, "monthly"),
   ]);
 
   if (dailyUsed >= DAILY_TOKEN_LIMIT) {
     return {
-      allowed: false,
+      allowed: false as const,
       period: "daily" as const,
       used: dailyUsed,
       limit: DAILY_TOKEN_LIMIT,
@@ -66,7 +77,7 @@ export async function checkAiUsageQuota(userEmail: string) {
 
   if (monthlyUsed >= MONTHLY_TOKEN_LIMIT) {
     return {
-      allowed: false,
+      allowed: false as const,
       period: "monthly" as const,
       used: monthlyUsed,
       limit: MONTHLY_TOKEN_LIMIT,
@@ -77,12 +88,12 @@ export async function checkAiUsageQuota(userEmail: string) {
 }
 
 export async function logAiUsage({
-  userEmail,
+  identity,
   route,
   model,
   tokensUsed,
 }: {
-  userEmail: string;
+  identity: AiUsageIdentity;
   route: string;
   model: string;
   tokensUsed: number;
@@ -92,7 +103,7 @@ export async function logAiUsage({
   }
 
   await db.insert(aiUsageTable).values({
-    userEmail,
+    ...identity,
     route,
     model,
     tokensUsed: Math.floor(tokensUsed),

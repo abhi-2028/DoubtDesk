@@ -602,13 +602,15 @@ export const discussionThreadsTable = pgTable("discussion_threads", {
         foreignColumns: [usersTable.email],
     }).onDelete("cascade"),
     createdAtIndex: index("discussion_threads_created_at_idx").on(table.createdAt),
-}));
+}));
+
 
 export const aiUsageTable = pgTable(
     "ai_usage",
     {
         id: integer().primaryKey().generatedAlwaysAsIdentity(),
-        userEmail: varchar({ length: 255 }).notNull(),
+        userEmail: varchar({ length: 255 }),
+        anonymousId: varchar({ length: 255 }),
         route: varchar({ length: 255 }).notNull(),
         model: varchar({ length: 255 }).notNull(),
         tokensUsed: integer().notNull(),
@@ -617,6 +619,10 @@ export const aiUsageTable = pgTable(
     (table) => ({
         userTimestampIndex: index("ai_usage_user_timestamp_idx").on(
             table.userEmail,
+            table.timestamp,
+        ),
+        anonymousTimestampIndex: index("ai_usage_anonymous_timestamp_idx").on(
+            table.anonymousId,
             table.timestamp,
         ),
         timestampIndex: index("ai_usage_timestamp_idx").on(table.timestamp),

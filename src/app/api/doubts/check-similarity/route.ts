@@ -13,6 +13,7 @@ import {
 import { aiLimiter } from "@/lib/ratelimit/ratelimit";
 import { getAnonymousQuotaIdentifier } from "@/lib/auth/request-identity";
 import { getSafeErrorDetails } from "@/lib/errors/safe-error-details";
+import { checkAiUsageQuota, logAiUsage, type AiUsageIdentity } from "@/lib/ai/usage-tracker";
 import {
   requireAuth,
   requireMembership,
@@ -38,11 +39,14 @@ export async function POST(req: Request) {
     if (errorResponse) return errorResponse;
 
     const { content, classroomId } = data;
-    let aiQuotaIdentifier = getAnonymousQuotaIdentifier(req);
+
+    let aiUsageIdentity: AiUsageIdentity = {
+      anonymousId: getAnonymousQuotaIdentifier(req),
+    };
 
     const anonymousRateLimitResponse = await enforceApiRateLimit(
       aiLimiter,
-      aiQuotaIdentifier,
+      getAnonymousQuotaIdentifier(req),
       "ai",
     );
     if (anonymousRateLimitResponse) return anonymousRateLimitResponse;
@@ -56,7 +60,7 @@ export async function POST(req: Request) {
       );
       if (userRateLimitResponse) return userRateLimitResponse;
       await requireMembership(email, classroomId);
-      aiQuotaIdentifier = email;
+      aiUsageIdentity = { userEmail: email };
       const rateLimit = await aiLimiter.limit(email);
       if (!rateLimit.success) {
         const retryAfter = Math.max(
@@ -112,8 +116,26 @@ export async function POST(req: Request) {
       return NextResponse.json({ similarDoubts: [] });
     }
 
-    const availabilityResponse = await enforceAiAvailability(aiQuotaIdentifier);
+    const availabilityResponse = await enforceAiAvailability(
+      "userEmail" in aiUsageIdentity
+      ? aiUsageIdentity.userEmail
+      : aiUsageIdentity.anonymousId,
+    );
     if (availabilityResponse) return availabilityResponse;
+
+    const usageQuota = await checkAiUsageQuota(aiUsageIdentity);
+    if (!usageQuota.allowed) {
+      return NextResponse.json(
+        {
+          error: "AI usage quota exceeded",
+          code: "AI_QUOTA_EXCEEDED",
+          period: usageQuota.period,
+          used: usageQuota.used,
+          limit: usageQuota.limit,
+        },
+        { status: 429 },
+      );
+    }
 
     const doubtList = recentDoubts
       .map(
@@ -149,6 +171,17 @@ Do not include any explanation or markdown.`;
     }
 
     const raw = completion.choices[0]?.message?.content?.trim() || "[]";
+
+    try {
+      await logAiUsage({
+        identity: aiUsageIdentity,
+        route: "/api/doubts/check-similarity",
+        model: "openai/gpt-oss-120b",
+        tokensUsed: completion.usage?.total_tokens ?? 0,
+      });
+    } catch (error) {
+      console.error("Failed to log similarity AI usage:", error);
+    }
 
     let matches: { index: number; similarity: number }[] = [];
     try {
