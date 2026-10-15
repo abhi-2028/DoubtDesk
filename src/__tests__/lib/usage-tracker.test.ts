@@ -1,8 +1,16 @@
 const selectResults: Array<{ total: number }> = [];
 const insertValues = jest.fn().mockResolvedValue(undefined);
 
+type SelectQuery = {
+  from: () => SelectQuery;
+  where: () => SelectQuery;
+  then: (
+    resolve: (value: [{ total: number }]) => unknown,
+  ) => Promise<unknown>;
+};
+
 const createSelectQuery = (result: { total: number }) => {
-  const query: any = {
+  const query: SelectQuery = {
     from: () => query,
     where: () => query,
     then: (resolve: (value: [{ total: number }]) => unknown) =>

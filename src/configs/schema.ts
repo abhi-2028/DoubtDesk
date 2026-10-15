@@ -602,8 +602,7 @@ export const discussionThreadsTable = pgTable("discussion_threads", {
         foreignColumns: [usersTable.email],
     }).onDelete("cascade"),
     createdAtIndex: index("discussion_threads_created_at_idx").on(table.createdAt),
-}));
-
+}));
 
 export const aiUsageTable = pgTable(
     "ai_usage",
